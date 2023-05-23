@@ -50,7 +50,7 @@ static <- lobs_summary %>%
   
   # geoms: a boxplot and points with jitter ----
   geom_boxplot(width = 0.5, outlier.shape = NA) +
-  geom_point(aes(color = site, shape = site), size = 4, alpha = 0.8, 
+  geom_point(aes(color = site, shape = site), size = 4, alpha = 0.8, #alpha changes transparency
              # turn the points into a jitter (with a little more control than geom_jitter)
              position = position_jitter(width = 0.25, height = 0, seed = 1)) +
   
@@ -82,15 +82,22 @@ static
 ## b. create an interactive plot
 
 ```{r basic-interactive-plot}
-
+ggplotly(static)
 ```
 
 ## c. create a better interactive plot
 
 ### i. create a marker
+markers are when you hover over an object it is the window that drops down , whatever pops up when you hover over a point
 
 ```{r summary-marker-df}
-
+lobs_summary_marker <- lobs_summary %>% 
+  
+  # create a new column called "marker"---
+  mutate(marker = paste0("Site: ", site, "<br>",
+                         "Year: ", year, "<br>",
+                         "Status: ", protection_status, "<br>",
+                         "Lobster count: ", n)) # break in html /line break is <br>, html format in dataframe
 ```
 
 ### ii. make a new static plot with `text = marker` aesthetic argument
@@ -100,7 +107,7 @@ static
 static_with_marker <- lobs_summary_marker %>% 
   
   # create boxplot of mpa vs non-mpa lobster counts ----
-  ggplot(aes(x = protection_status, y = n, text = marker, group = protection_status)) +
+  ggplot(aes(x = protection_status, y = n, text = marker, group = protection_status)) + # text = marker, for any text elements use marker column
   
   # geoms: boxplot and jitter ----
   geom_boxplot(width = 0.5, outlier.shape = NA) +
@@ -131,7 +138,25 @@ static_with_marker
 ### iii. create plot with markers
 
 ```{r better-interactive-plot}
-
+lobs_interactive <- ggplotly(static_with_marker, tooltip = "text") %>% 
+  #adjust the layout using layout()
+  layout(
+    #global font option # each function in plotly takes a list
+    font = list(family = "Times"),
+    
+    #adjust hover label (tooltip)
+    hoverlabel = list(
+      #edit the font" all goes into a list()
+      font = list(
+        family = "Times",
+        size = 13,
+        color = "#FFFFFF",
+        aligned = "left"
+      )
+    )
+  )
+  # tooltip is hover tip, text corresponds to the element in the static ggplot
+lobs_interactive
 ```
 
 ### iv. doing things in `plot_ly`
@@ -195,13 +220,66 @@ plot_ly(
 ## a. create a basic interactive table
 
 ```{r basic-DT}
-
+datatable(data = lobs)
 ```
 
 ## b. customizing your DT
 
 ```{r advanced-DT}
+lobs_dt <- datatable(data = lobs, #all options go into first function
+                     
+                     # make the column anmes informative ------
+                     colnames = c("Year", "Date", "Site", "Protection status", 
+                                  "Transect", "Replicate", "Size (mm)", "Count", "Latitude",
+                                  "Longitude"), # take concatenated list with c()
+                     # add column filters
+                     filter = "top",
+                     
+                     # put in extensions to datatable------
+                     extensions = c("Buttons", "ColReorder"), # buttoms provides buttons at top or bottom for people to download table, call reorder allows people to rearrange order of columns
+                     
+                     # add in some options for our table --- all go in list
+                     options = list(
+                       # list 10 entries at once
+                       pageLength = 10,
+                       # automatically size columns
+                       autoWidth = TRUE, 
+                       # highlight entrices that match a search term
+                       searchHighlight = TRUE,
+                       
+                       #adjust the document object
+                       dom = "Bfrtip",
+                       
+                       # buttons options
+                       buttons = c("copy", "csv", "excel", "pdf", "print", "colvis"), # need to put in DOM or else wont print
+                       
+                       # set colReorder to show up in table
+                       colReorder = TRUE
+                  
+                       
+                       
+                     )
+                  
+                     ) %>% 
+  
+  # style the cells 
+  formatStyle("site", 
+              # set background colour for the cell
+              backgroundColor = styleEqual(
+                levels = list("NAPL", "IVEE", "AQUE", "MOHK", "CARP"),
+                values = c("NAPL" = "#91B38A",
+                           "IVEE" = "#9565CC",
+                           "AQUE" = "#CCC065",
+                           "MOHK" = "#658ACC",
+                           "CARP" = "#CC6565")
+                
+              )
+              
+              
+              
+              )
 
+lobs_dt
 ```
 
 # 4. `leaflet`
@@ -212,8 +290,9 @@ plot_ly(
 # create df of unique sites ----
 sites <- lobs %>% 
   select(site, protection_status, lat, lon) %>% 
-  distinct()
+  distinct() #just pull out the distinct rows
 
+# if we want functionality to toggle on and off mpa and non-mpa sites
 # just mpa sites ----
 mpa <- sites %>% 
   filter(protection_status == "MPA")
@@ -226,13 +305,49 @@ non_mpa <- sites %>%
 ## b. create a custom icon
 
 ```{r lobster-icon}
+lobster_icon <- makeIcon(
+  iconUrl = here::here("media", "lobster.png"), #filepath to png file
+  iconWidth = 30, # unit in pixel
+  iconHeight = 30
+)
 
 ```
 
 ## c. create a map!
 
 ```{r leaflet-map}
+site_map <- leaflet() %>% 
+  
+  #add basemap tiles
+  addProviderTiles(providers$Esri.WorldImagery, group = "ESRI World Imagery") %>% # toggle feature needs to refer to something, do this by group
+  addProviderTiles(providers$Esri.OceanBasemap, group = "ESRI Oceans") %>% 
+  
+  #mini map ---
+  addMiniMap(toggleDisplay = TRUE, minimized = TRUE) %>% 
+  
+  # setView over Santa Barbara
+  setView(lng = -119.83, lat = 34.44, zoom = 9) %>% 
+  
+  # add MPA markers
+  addMarkers(data = mpa, group = "MPA Sites",
+             icon = lobster_icon,
+             lng = ~lon, lat = ~lat,
+             popup = paste("Site Name: ", mpa$site)) %>%  # ~ grab column from dataframe
+  # add non-MPA
+  addMarkers(data = non_mpa, group = "non-MPA Sites",
+             icon = lobster_icon,
+             lng = ~lon, lat = ~lat,
+             popup = paste("Site Name: ", non_mpa$site)) %>% 
+  
+  #add toggle layers control
+  addLayersControl(
+    baseGroups = c("ESRI World Imagery", "ESRI Oceans"),
+    overlayGroups = c("MPA Sites", "non-MPA Sites")
+  )
 
+#reset map function not explored
+
+site_map
 ```
 
 # 4. saving the html objects
